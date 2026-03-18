@@ -1,5 +1,5 @@
 {
-  "server_host": "10.11.73.46",
+  "server_host": "192.168.56.1",
   "server_port": 4444,
   "game_name": "Cyber Maze"
 }
