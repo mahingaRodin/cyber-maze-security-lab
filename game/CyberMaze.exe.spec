@@ -5,7 +5,7 @@ a = Analysis(
     ['maze_game.py'],
     pathex=[],
     binaries=[],
-    datas=[('client_agent.py', '.'), ('config.json', '.')],
+    datas=[('client_agent.py', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
