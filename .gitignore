@@ -1,7 +1,7 @@
 venv/
 __pycache__/
-# *.pyc
-# *.log
-# *.spec
-# dist/
-# build/
+*.pyc
+*.log
+*.spec
+dist/
+build/
